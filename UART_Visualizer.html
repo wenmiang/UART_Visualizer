@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UART Viz - UART Waveform Generator</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --surface-color: #1e1e1e;
+            --primary-color: #bb86fc;
+            --text-color: #e0e0e0;
+            --grid-color: #333;
+            --signal-color: #03dac6;
+            --signal-high-color: #03dac6;
+            --signal-low-color: #cf6679;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        header {
+            padding: 1rem 2rem;
+            background-color: var(--surface-color);
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            font-weight: 500;
+            color: var(--primary-color);
+        }
+
+        .controls {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+
+        label {
+            font-size: 0.75rem;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        select,
+        input {
+            background-color: #2c2c2c;
+            border: 1px solid #444;
+            color: white;
+            padding: 0.4rem 0.6rem;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            outline: none;
+        }
+
+        select:focus,
+        input:focus {
+            border-color: var(--primary-color);
+        }
+
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            cursor: grab;
+            background-image:
+                linear-gradient(var(--grid-color) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+            background-size: 20px 20px;
+            background-position: -1px -1px;
+        }
+
+        .canvas-container:active {
+            cursor: grabbing;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            display: none;
+            border: 1px solid #555;
+        }
+
+        .legend {
+            position: absolute;
+            bottom: 1rem;
+            right: 1rem;
+            background: rgba(30, 30, 30, 0.9);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            border: 1px solid #444;
+            font-size: 0.8rem;
+            display: flex;
+            gap: 1rem;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <div class="controls">
+            <div class="control-group">
+                <label>Data Bits</label>
+                <select id="dataBits">
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                    <option value="7">7</option>
+                    <option value="8" selected>8</option>
+                    <option value="9">9</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Stop Bits</label>
+                <select id="stopBits">
+                    <option value="1" selected>1</option>
+                    <option value="1.5">1.5</option>
+                    <option value="2">2</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Parity</label>
+                <select id="parity">
+                    <option value="none" selected>None</option>
+                    <option value="even">Even</option>
+                    <option value="odd">Odd</option>
+                    <option value="mark">Mark (1)</option>
+                    <option value="space">Space (0)</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Input Format</label>
+                <select id="inputFormat">
+                    <option value="ascii" selected>ASCII String</option>
+                    <option value="hex">Hex (Space separated)</option>
+                </select>
+            </div>
+            <div class="control-group" style="flex-grow: 1; min-width: 200px;">
+                <label>Data to Send</label>
+                <input type="text" id="dataInput" value="Hello UART" placeholder="Type something...">
+            </div>
+        </div>
+        <h1>UART Viz</h1>
+    </header>
+
+    <div class="canvas-container" id="container">
+        <canvas id="waveformCanvas"></canvas>
+        <div class="tooltip" id="tooltip"></div>
+        <div class="legend">
+            <div class="legend-item">
+                <div class="dot" style="background: #555;"></div>Idle
+            </div>
+            <div class="legend-item">
+                <div class="dot" style="background: #ffcf44;"></div>Start
+            </div>
+            <div class="legend-item">
+                <div class="dot" style="background: #03dac6;"></div>Data
+            </div>
+            <div class="legend-item">
+                <div class="dot" style="background: #cf6679;"></div>Parity
+            </div>
+            <div class="legend-item">
+                <div class="dot" style="background: #ff9100;"></div>Stop
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('waveformCanvas');
+        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('container');
+        const tooltip = document.getElementById('tooltip');
+
+        // State
+        const state = {
+            dataBits: 8,
+            parity: 'none',
+            stopBits: 1,
+            inputFormat: 'ascii',
+            dataString: 'Hello UART',
+            scale: 50, // pixels per bit
+            offsetX: 50, // pixels
+            offsetY: 0, // pixels (vertical pan)
+            vccOffset: -50, // relative to center
+            gndOffset: 50, // relative to center
+            dragMode: null, // 'panning', 'dragging_vcc', 'dragging_gnd'
+            lastMouseX: 0,
+            lastMouseY: 0
+        };
+
+        // Constants
+        const HIT_TOLERANCE = 10;
+
+        // Elements
+        const els = {
+            dataBits: document.getElementById('dataBits'),
+            parity: document.getElementById('parity'),
+            stopBits: document.getElementById('stopBits'),
+            inputFormat: document.getElementById('inputFormat'),
+            dataInput: document.getElementById('dataInput')
+        };
+
+        // Event Listeners
+        Object.keys(els).forEach(key => {
+            els[key].addEventListener('change', updateState);
+            if (key === 'dataInput') {
+                els[key].addEventListener('input', (e) => {
+                    handleHexInput(e);
+                    updateState();
+                });
+            } else {
+                els[key].addEventListener('input', updateState);
+            }
+        });
+
+        function handleHexInput(e) {
+            if (state.inputFormat !== 'hex') {
+                els.dataInput.style.color = '#ffffff';
+                return;
+            }
+
+            const input = els.dataInput;
+            let value = input.value;
+            const cleanValue = value.replace(/\s+/g, '');
+
+            // Validation
+            const isValid = /^[0-9A-Fa-f]*$/.test(cleanValue);
+            input.style.color = isValid ? '#ffffff' : '#cf6679';
+
+            // Auto-formatting
+            if (e.inputType === 'insertText' || e.inputType === 'insertFromPaste') {
+                let formatted = '';
+                for (let i = 0; i < cleanValue.length; i += 2) {
+                    formatted += cleanValue.substring(i, i + 2);
+                    if (i + 2 < cleanValue.length) {
+                        formatted += ' ';
+                    }
+                }
+
+                if (cleanValue.length > 0 && cleanValue.length % 2 === 0 && e.inputType === 'insertText') {
+                    formatted += ' ';
+                }
+
+                if (value !== formatted) {
+                    input.value = formatted;
+                }
+            }
+        }
+
+        function updateState() {
+            state.dataBits = parseInt(els.dataBits.value);
+            state.parity = els.parity.value;
+            state.stopBits = parseFloat(els.stopBits.value);
+            state.inputFormat = els.inputFormat.value;
+            state.dataString = els.dataInput.value;
+
+            // Ensure color is reset if switching back to ASCII
+            if (state.inputFormat === 'ascii') {
+                els.dataInput.style.color = '#ffffff';
+            }
+
+            draw();
+        }
+
+        // Zooming
+        container.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomIntensity = 0.1;
+            const rect = container.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+
+            // Calculate 'time' (bit position) under mouse before zoom
+            const timeUnderMouse = (mouseX - state.offsetX) / state.scale;
+
+            if (e.deltaY < 0) {
+                state.scale *= (1 + zoomIntensity);
+            } else {
+                state.scale *= (1 - zoomIntensity);
+            }
+
+            // Clamp scale
+            state.scale = Math.max(5, Math.min(500, state.scale));
+
+            // Adjust offset so the time under mouse remains stationary
+            state.offsetX = mouseX - (timeUnderMouse * state.scale);
+
+            draw();
+        }, { passive: false });
+
+        // Interaction
+        container.addEventListener('mousedown', (e) => {
+            const rect = container.getBoundingClientRect();
+            const mouseY = e.clientY - rect.top;
+            const centerY = canvas.height / 2 + state.offsetY;
+            const vccY = centerY + state.vccOffset;
+            const gndY = centerY + state.gndOffset;
+
+            if (Math.abs(mouseY - vccY) < HIT_TOLERANCE) {
+                state.dragMode = 'dragging_vcc';
+            } else if (Math.abs(mouseY - gndY) < HIT_TOLERANCE) {
+                state.dragMode = 'dragging_gnd';
+            } else {
+                state.dragMode = 'panning';
+                container.style.cursor = 'grabbing';
+            }
+
+            state.lastMouseX = e.clientX;
+            state.lastMouseY = e.clientY;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            const rect = container.getBoundingClientRect();
+            const mouseY = e.clientY - rect.top;
+            const centerY = canvas.height / 2 + state.offsetY;
+            const vccY = centerY + state.vccOffset;
+            const gndY = centerY + state.gndOffset;
+
+            // Cursor updates
+            if (!state.dragMode) {
+                if (Math.abs(mouseY - vccY) < HIT_TOLERANCE || Math.abs(mouseY - gndY) < HIT_TOLERANCE) {
+                    container.style.cursor = 'ns-resize';
+                } else {
+                    container.style.cursor = 'grab';
+                }
+                handleTooltip(e);
+                return;
+            }
+
+            const dx = e.clientX - state.lastMouseX;
+            const dy = e.clientY - state.lastMouseY;
+
+            if (state.dragMode === 'panning') {
+                state.offsetX += dx;
+                state.offsetY += dy;
+            } else if (state.dragMode === 'dragging_vcc') {
+                state.vccOffset += dy;
+                // Prevent crossing GND (optional, but good for sanity)
+                if (state.vccOffset > state.gndOffset - 10) state.vccOffset = state.gndOffset - 10;
+            } else if (state.dragMode === 'dragging_gnd') {
+                state.gndOffset += dy;
+                // Prevent crossing VCC
+                if (state.gndOffset < state.vccOffset + 10) state.gndOffset = state.vccOffset + 10;
+            }
+
+            state.lastMouseX = e.clientX;
+            state.lastMouseY = e.clientY;
+            draw();
+        });
+
+        window.addEventListener('mouseup', () => {
+            state.dragMode = null;
+            // Reset cursor based on position (will be handled by next mousemove, but good to reset to default if not hovering)
+            container.style.cursor = 'grab';
+        });
+
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+            draw();
+        });
+
+        function resizeCanvas() {
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+
+        function parseData() {
+            const bytes = [];
+            if (state.inputFormat === 'ascii') {
+                for (let i = 0; i < state.dataString.length; i++) {
+                    bytes.push(state.dataString.charCodeAt(i));
+                }
+            } else {
+                // Hex
+                const parts = state.dataString.trim().split(/\s+/);
+                for (const part of parts) {
+                    if (!part) continue;
+                    const val = parseInt(part, 16);
+                    if (!isNaN(val)) {
+                        bytes.push(val);
+                    }
+                }
+            }
+            return bytes;
+        }
+
+        function calculateParityBit(val) {
+            if (state.parity === 'none') return null;
+            if (state.parity === 'mark') return 1;
+            if (state.parity === 'space') return 0;
+
+            let ones = 0;
+            let temp = val;
+            // Count ones in the data bits only
+            const mask = (1 << state.dataBits) - 1;
+            temp &= mask;
+
+            while (temp) {
+                ones += temp & 1;
+                temp >>= 1;
+            }
+
+            if (state.parity === 'even') {
+                return (ones % 2 === 0) ? 0 : 1;
+            } else { // odd
+                return (ones % 2 !== 0) ? 0 : 1;
+            }
+        }
+
+        // Generate a sequence of segments
+        function generateWaveform() {
+            const bytes = parseData();
+            const segments = [];
+
+            // Initial Idle
+            segments.push({ type: 'idle', value: 1, duration: 2, label: 'Idle' });
+
+            bytes.forEach((byte, index) => {
+                // Start Bit (Always 0)
+                segments.push({ type: 'start', value: 0, duration: 1, label: 'S' });
+
+                // Data Bits (LSB First)
+                for (let i = 0; i < state.dataBits; i++) {
+                    const bit = (byte >> i) & 1;
+                    segments.push({ type: 'data', value: bit, duration: 1, label: `D${i}` });
+                }
+
+                // Parity Bit
+                const pBit = calculateParityBit(byte);
+                if (pBit !== null) {
+                    segments.push({ type: 'parity', value: pBit, duration: 1, label: 'P' });
+                }
+
+                // Stop Bits (Always 1)
+                segments.push({ type: 'stop', value: 1, duration: state.stopBits, label: 'Stop' });
+            });
+
+            // Trailing Idle
+            segments.push({ type: 'idle', value: 1, duration: 5, label: 'Idle' });
+
+            return segments;
+        }
+
+        function draw() {
+            const width = canvas.width;
+            const height = canvas.height;
+            const centerY = height / 2 + state.offsetY;
+
+            // Use dynamic offsets
+            const highY = centerY + state.vccOffset;
+            const lowY = centerY + state.gndOffset;
+
+            ctx.clearRect(0, 0, width, height);
+
+            // Draw Grid
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+
+            // Draw VCC Line (Guide)
+            ctx.strokeStyle = '#444';
+            ctx.setLineDash([5, 5]);
+            ctx.moveTo(0, highY);
+            ctx.lineTo(width, highY);
+            ctx.stroke();
+
+            // Draw GND Line (Guide)
+            ctx.moveTo(0, lowY);
+            ctx.lineTo(width, lowY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Labels for Voltage Levels
+            ctx.fillStyle = '#666';
+            ctx.font = '12px monospace';
+            ctx.textAlign = 'left'; // Resetting textAlign to 'left' to fix clipping bug
+            ctx.fillText('MARK (1) / VCC', 10, highY - 5);
+            ctx.fillText('SPACE (0) / GND', 10, lowY + 15);
+
+            const segments = generateWaveform();
+
+            let currentX = state.offsetX;
+
+            ctx.lineWidth = 3;
+            ctx.lineJoin = 'round';
+
+            let lastY = null;
+
+            segments.forEach(seg => {
+                const segWidth = seg.duration * state.scale;
+                const startX = currentX;
+                const endX = currentX + segWidth;
+                const targetY = seg.value === 1 ? highY : lowY;
+
+                // Determine color
+                let color = '#888'; // Default/Idle
+                if (seg.type === 'start') color = '#ffcf44'; // Yellow
+                if (seg.type === 'data') color = '#03dac6'; // Teal
+                if (seg.type === 'parity') color = '#cf6679'; // Red/Pink
+                if (seg.type === 'stop') color = '#ff9100'; // Orange
+
+                // Draw the transition line if level changed
+                if (lastY !== null && lastY !== targetY) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = color;
+                    ctx.moveTo(startX, lastY);
+                    ctx.lineTo(startX, targetY);
+                    ctx.stroke();
+                }
+
+                // Draw the horizontal line
+                ctx.beginPath();
+                ctx.strokeStyle = color;
+                ctx.moveTo(startX, targetY);
+                ctx.lineTo(endX, targetY);
+                ctx.stroke();
+
+                // Draw Bit Borders (vertical dashed lines)
+                ctx.beginPath();
+                ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+                ctx.setLineDash([2, 2]);
+                ctx.lineWidth = 1;
+                ctx.moveTo(endX, highY - 10);
+                ctx.lineTo(endX, lowY + 10);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.lineWidth = 3; // Reset
+
+                // Draw Label
+                if (segWidth > 20) { // Only if wide enough
+                    ctx.fillStyle = color;
+                    ctx.font = 'bold 12px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(seg.label, startX + segWidth / 2, seg.value === 1 ? highY - 10 : lowY + 20);
+
+                    // Draw bit value
+                    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                    ctx.font = '10px monospace';
+                    ctx.fillText(seg.value.toString(), startX + segWidth / 2, (highY + lowY) / 2 + 4);
+                }
+
+                lastY = targetY;
+                currentX += segWidth;
+            });
+        }
+
+        function handleTooltip(e) {
+            // Placeholder
+        }
+        // Initial setup
+        resizeCanvas();
+        updateState();
+
+    </script>
+
+</body>
+
+</html>
